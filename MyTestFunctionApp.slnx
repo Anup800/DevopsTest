@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/Infrastructure/" />
+  <Folder Name="/Infrastructure/tf/">
+    <File Path="main.tf" />
+    <File Path="outputs.tf" />
+    <File Path="providers.tf" />
+    <File Path="variables.tf" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+  </Folder>
+  <Project Path="MyTestFunctionApp/MyTestFunctionApp.csproj" />
+</Solution>
