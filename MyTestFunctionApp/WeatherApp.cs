@@ -16,9 +16,32 @@ namespace MyTestFunctionApp
             _logger = logger;
         }
 
+        [Function("ApiRoot")]
+        public async Task<HttpResponseData> ApiRoot(
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "")] HttpRequestData req)
+        {
+            _logger.LogInformation("Api root triggered");
+
+            var response = req.CreateResponse(HttpStatusCode.OK);
+            response.Headers.Add("Content-Type", "application/json");
+
+            var payload = new
+            {
+                message = "Function app is running",
+                endpoints = new[]
+                {
+                    "/api/getmydata?Ques=hello",
+                    "/api/getmydata2"
+                }
+            };
+
+            await response.WriteStringAsync(JsonSerializer.Serialize(payload));
+            return response;
+        }
+
         [Function("GetMyData")]
         public async Task<HttpResponseData> Run(
-            [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "getmydata")] HttpRequestData req)
         {
             _logger.LogInformation("GetMyData triggered");
 
@@ -27,7 +50,7 @@ namespace MyTestFunctionApp
             try
             {
                 var query = QueryHelpers.ParseQuery(req.Url.Query);
-                var ques = query["Ques"].ToString();
+                var ques = query.TryGetValue("Ques", out var question) ? question.ToString() : string.Empty;
 
                 var resultObject = new
                 {
@@ -36,8 +59,7 @@ namespace MyTestFunctionApp
                 };
 
                 response.Headers.Add("Content-Type", "application/json");
-
-                await response.WriteStringAsync(JsonSerializer.Serialize("helo"));
+                await response.WriteStringAsync(JsonSerializer.Serialize(resultObject));
 
                 return response;
             }
@@ -54,7 +76,7 @@ namespace MyTestFunctionApp
 
         [Function("GetMyData2")]
         public async Task<HttpResponseData> Run2(
-            [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequestData req)
+            [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "getmydata2")] HttpRequestData req)
         {
             _logger.LogInformation("GetMyData2 triggered");
 
