@@ -89,6 +89,6 @@ stages:
       displayName: "Deploy Function App"
       inputs:
         azureSubscription: $(azureServiceConnection)
-        appType: 'functionApp'
+        appType: 'functionAppLinux'
         appName: $(functionAppName)
         package: '$(Build.ArtifactStagingDirectory)'
