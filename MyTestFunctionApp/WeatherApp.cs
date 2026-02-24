@@ -1,7 +1,9 @@
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
+using System.Net;
+using Microsoft.AspNetCore.WebUtilities;
+using System.Text.Json;
 
 namespace MyTestFunctionApp
 {
@@ -15,10 +17,51 @@ namespace MyTestFunctionApp
         }
 
         [Function("GetMyData")]
-        public IActionResult Run([HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequest req)
+        public async Task<HttpResponseData> Run(
+            [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequestData req)
         {
-            _logger.LogInformation("C# HTTP trigger function processed a request.");
-            return new OkObjectResult("Welcome to Azure Functions!");
+            _logger.LogInformation("GetMyData triggered");
+
+            var response = req.CreateResponse(HttpStatusCode.OK);
+
+            try
+            {
+                var query = QueryHelpers.ParseQuery(req.Url.Query);
+                var ques = query["Ques"].ToString();
+
+                var resultObject = new
+                {
+                    message = "Hello",
+                    question = ques
+                };
+
+                response.Headers.Add("Content-Type", "application/json");
+
+                await response.WriteStringAsync(JsonSerializer.Serialize("helo"));
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetMyData");
+
+                response.StatusCode = HttpStatusCode.InternalServerError;
+                await response.WriteStringAsync("Error occurred");
+
+                return response;
+            }
+        }
+
+        [Function("GetMyData2")]
+        public async Task<HttpResponseData> Run2(
+            [HttpTrigger(AuthorizationLevel.Function, "get")] HttpRequestData req)
+        {
+            _logger.LogInformation("GetMyData2 triggered");
+
+            var response = req.CreateResponse(HttpStatusCode.OK);
+            await response.WriteStringAsync("Run2 executed successfully");
+
+            return response;
         }
     }
 }

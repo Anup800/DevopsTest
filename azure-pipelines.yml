@@ -1,0 +1,94 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  terraformVersion: '1.6.6'
+  azureServiceConnection: 'AzureServiceConnection'
+  backendResourceGroup: 'rg-func-basic-dev'
+  backendStorageAccount: 'mystorageaccttfstate'
+  backendContainer: 'tfstate'
+  backendKey: 'terraform.tfstate'
+  functionAppName: 'func-basic-myTest-001'
+
+stages:
+
+# ===================================
+# Stage 1 - Terraform Plan
+# ===================================
+- stage: TerraformPlan
+  displayName: "Terraform Plan"
+  jobs:
+  - job: Plan
+    steps:
+
+    - task: TerraformInstaller@1
+      inputs:
+        terraformVersion: $(terraformVersion)
+
+    - task: TerraformTaskV4@4
+      displayName: "Terraform Init"
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        backendServiceArm: $(azureServiceConnection)
+        backendAzureRmResourceGroupName: $(backendResourceGroup)
+        backendAzureRmStorageAccountName: $(backendStorageAccount)
+        backendAzureRmContainerName: $(backendContainer)
+        backendAzureRmKey: $(backendKey)
+
+    - task: TerraformTaskV4@4
+      displayName: "Terraform Plan"
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        environmentServiceNameAzureRM: $(azureServiceConnection)
+
+# ===================================
+# Stage 2 - Terraform Apply
+# ===================================
+- stage: TerraformApply
+  displayName: "Terraform Apply"
+  dependsOn: TerraformPlan
+  jobs:
+  - job: Apply
+    steps:
+
+    - task: TerraformTaskV4@4
+      displayName: "Terraform Apply"
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        environmentServiceNameAzureRM: $(azureServiceConnection)
+        args: '-auto-approve'
+
+# ===================================
+# Stage 3 - Build & Deploy Function
+# ===================================
+- stage: DeployFunction
+  displayName: "Build & Deploy Function"
+  dependsOn: TerraformApply
+  jobs:
+  - job: Deploy
+    steps:
+
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '8.0.x'
+
+    - script: |
+        cd MyTestFunctionApp
+        dotnet restore
+        dotnet publish --configuration Release --output $(Build.ArtifactStagingDirectory)
+      displayName: "Build Function"
+
+    - task: AzureFunctionApp@2
+      displayName: "Deploy Function App"
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        appType: 'functionApp'
+        appName: $(functionAppName)
+        package: '$(Build.ArtifactStagingDirectory)'
