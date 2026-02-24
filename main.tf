@@ -20,6 +20,7 @@ resource "azurerm_linux_function_app" "func" {
   location                   = azurerm_resource_group.rg.location
   service_plan_id            = azurerm_service_plan.plan.id
   https_only                 = true
+  functions_extension_version = "~4"
 
   storage_account_name       = azurerm_storage_account.sa.name
   storage_account_access_key = azurerm_storage_account.sa.primary_access_key
@@ -27,7 +28,8 @@ resource "azurerm_linux_function_app" "func" {
 
   site_config {
     application_stack {
-      dotnet_version = "8.0"
+      dotnet_version              = "8.0"
+      use_dotnet_isolated_runtime = true
     }
   }
 
@@ -57,6 +59,5 @@ resource "azurerm_api_management" "apim" {
     type = "SystemAssigned"
   }
 }
-
 
 
