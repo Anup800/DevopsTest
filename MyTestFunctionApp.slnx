@@ -9,5 +9,6 @@
   <Folder Name="/Solution Items/">
     <File Path="README.md" />
   </Folder>
+  <Project Path="Application/Application.csproj" />
   <Project Path="MyTestFunctionApp/MyTestFunctionApp.csproj" />
 </Solution>

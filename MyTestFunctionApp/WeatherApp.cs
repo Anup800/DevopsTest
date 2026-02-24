@@ -1,8 +1,9 @@
+using Application;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using System.Net;
-using Microsoft.AspNetCore.WebUtilities;
 using System.Text.Json;
 
 namespace MyTestFunctionApp
@@ -10,10 +11,12 @@ namespace MyTestFunctionApp
     public class WeatherApp
     {
         private readonly ILogger<WeatherApp> _logger;
+        private readonly IMyClient _myClient;
 
-        public WeatherApp(ILogger<WeatherApp> logger)
+        public WeatherApp(ILogger<WeatherApp> logger, IMyClient myClient)
         {
             _logger = logger;
+            _myClient = myClient;
         }
 
         [Function("ApiRoot")]
@@ -30,7 +33,7 @@ namespace MyTestFunctionApp
                 message = "Function app is running",
                 endpoints = new[]
                 {
-                    "/api/getmydata?Ques=hello",
+                    "/api/getmydata?ques=What is DevOps?",
                     "/api/getmydata2"
                 }
             };
@@ -50,12 +53,30 @@ namespace MyTestFunctionApp
             try
             {
                 var query = QueryHelpers.ParseQuery(req.Url.Query);
-                var ques = query.TryGetValue("Ques", out var question) ? question.ToString() : string.Empty;
+                var ques = query.TryGetValue("ques", out var lowerQuestion)
+                    ? lowerQuestion.ToString()
+                    : query.TryGetValue("Ques", out var upperQuestion)
+                        ? upperQuestion.ToString()
+                        : string.Empty;
+
+                if (string.IsNullOrWhiteSpace(ques))
+                {
+                    response.StatusCode = HttpStatusCode.BadRequest;
+                    response.Headers.Add("Content-Type", "application/json");
+                    await response.WriteStringAsync(JsonSerializer.Serialize(new
+                    {
+                        message = "Please pass a non-empty query parameter 'ques'."
+                    }));
+
+                    return response;
+                }
+
+                var answer = await _myClient.AskQuestionAsync(ques, req.FunctionContext.CancellationToken);
 
                 var resultObject = new
                 {
-                    message = "Hello",
-                    question = ques
+                    question = ques,
+                    answer
                 };
 
                 response.Headers.Add("Content-Type", "application/json");
@@ -68,7 +89,11 @@ namespace MyTestFunctionApp
                 _logger.LogError(ex, "Error in GetMyData");
 
                 response.StatusCode = HttpStatusCode.InternalServerError;
-                await response.WriteStringAsync("Error occurred");
+                response.Headers.Add("Content-Type", "application/json");
+                await response.WriteStringAsync(JsonSerializer.Serialize(new
+                {
+                    message = "Error occurred while querying the model."
+                }));
 
                 return response;
             }
