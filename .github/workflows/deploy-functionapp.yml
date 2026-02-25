@@ -1,4 +1,4 @@
-name: Deploy Azure Function App (Dev/Prod)
+name: Deploy Azure Function App (Terraform + .NET)
 
 on:
   push:
@@ -26,21 +26,17 @@ env:
   FUNCTION_PROJECT_PATH: "MyTestFunctionApp/MyTestFunctionApp.csproj"
 
 jobs:
-  deploy:
-    name: Terraform + Function App Deploy
+  terraform-plan:
+    name: Terraform Plan
     runs-on: ubuntu-latest
     environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
-    env:
-      TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
+    outputs:
+      target_env: ${{ steps.config.outputs.target_env }}
+      tfvars_file: ${{ steps.config.outputs.tfvars_file }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -54,10 +50,12 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Select tfvars file
+      - name: Select target environment
         id: config
         run: |
-          if [ "${TARGET_ENV}" = "prod" ]; then
+          TARGET_ENV="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}"
+          echo "target_env=${TARGET_ENV}" >> "$GITHUB_OUTPUT"
+          if [ "$TARGET_ENV" = "prod" ]; then
             echo "tfvars_file=environments/prod.tfvars" >> "$GITHUB_OUTPUT"
           else
             echo "tfvars_file=environments/dev.tfvars" >> "$GITHUB_OUTPUT"
@@ -70,7 +68,7 @@ jobs:
       - name: Terraform Workspace
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
-          terraform workspace select "${TARGET_ENV}" || terraform workspace new "${TARGET_ENV}"
+          terraform workspace select "${{ steps.config.outputs.target_env }}" || terraform workspace new "${{ steps.config.outputs.target_env }}"
 
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -79,6 +77,51 @@ jobs:
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform plan -var-file="${{ steps.config.outputs.tfvars_file }}" -out=tfplan
+
+      - name: Upload tfplan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ steps.config.outputs.target_env }}
+          path: |
+            tfplan
+            .terraform.lock.hcl
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    environment: ${{ needs.terraform-plan.outputs.target_env }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Download tfplan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ needs.terraform-plan.outputs.target_env }}
+          path: .
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform Workspace
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform workspace select "${{ needs.terraform-plan.outputs.target_env }}" || terraform workspace new "${{ needs.terraform-plan.outputs.target_env }}"
 
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -89,6 +132,48 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           echo "function_app_name=$(terraform output -raw function_app_name)" >> "$GITHUB_OUTPUT"
+
+      - name: Persist Function App Name
+        run: echo "${{ steps.tf-output.outputs.function_app_name }}" > function_app_name.txt
+
+      - name: Upload Function App Name artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: function-app-name-${{ needs.terraform-plan.outputs.target_env }}
+          path: function_app_name.txt
+
+  deploy-function:
+    name: Build & Deploy Function
+    runs-on: ubuntu-latest
+    needs: [terraform-plan, terraform-apply]
+    environment: ${{ needs.terraform-plan.outputs.target_env }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Download Function App Name artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: function-app-name-${{ needs.terraform-plan.outputs.target_env }}
+          path: .
+
+      - name: Load Function App Name
+        id: app-name
+        run: |
+          echo "function_app_name=$(cat function_app_name.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Restore dependencies
         run: dotnet restore ${{ env.FUNCTION_PROJECT_PATH }}
@@ -102,5 +187,5 @@ jobs:
       - name: Deploy to Azure Function App
         uses: Azure/functions-action@v1
         with:
-          app-name: ${{ steps.tf-output.outputs.function_app_name }}
+          app-name: ${{ steps.app-name.outputs.function_app_name }}
           package: ./publish
