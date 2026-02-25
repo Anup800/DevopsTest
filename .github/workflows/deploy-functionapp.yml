@@ -1,0 +1,106 @@
+name: Deploy Azure Function App (Dev/Prod)
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  DOTNET_VERSION: "8.0.x"
+  TF_VERSION: "1.8.5"
+  TF_WORKING_DIR: "."
+  FUNCTION_PROJECT_PATH: "MyTestFunctionApp/MyTestFunctionApp.csproj"
+
+jobs:
+  deploy:
+    name: Terraform + Function App Deploy
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
+    env:
+      TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Select tfvars file
+        id: config
+        run: |
+          if [ "${TARGET_ENV}" = "prod" ]; then
+            echo "tfvars_file=environments/prod.tfvars" >> "$GITHUB_OUTPUT"
+          else
+            echo "tfvars_file=environments/dev.tfvars" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init
+
+      - name: Terraform Workspace
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform workspace select "${TARGET_ENV}" || terraform workspace new "${TARGET_ENV}"
+
+      - name: Terraform Validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -var-file="${{ steps.config.outputs.tfvars_file }}" -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Read Function App Name from Terraform
+        id: tf-output
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "function_app_name=$(terraform output -raw function_app_name)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.FUNCTION_PROJECT_PATH }}
+
+      - name: Build
+        run: dotnet build ${{ env.FUNCTION_PROJECT_PATH }} --configuration Release --no-restore
+
+      - name: Publish Function App
+        run: dotnet publish ${{ env.FUNCTION_PROJECT_PATH }} --configuration Release --output ./publish
+
+      - name: Deploy to Azure Function App
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ steps.tf-output.outputs.function_app_name }}
+          package: ./publish
