@@ -48,15 +48,23 @@ jobs:
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           allow-no-subscriptions: true
 
       - name: Validate Azure subscription access
         run: |
           echo "Checking Azure subscriptions visible to this service principal..."
           az account list --all --output table
-          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          echo "Azure subscription access verified."
+
+          SUB_INPUT="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          SUB_ID=$(az account list --all --query "[?id=='${SUB_INPUT}' || name=='${SUB_INPUT}'] | [0].id" -o tsv)
+
+          if [ -z "$SUB_ID" ]; then
+            echo "Unable to find a visible subscription matching AZURE_SUBSCRIPTION_ID value: ${SUB_INPUT}"
+            exit 1
+          fi
+
+          az account set --subscription "$SUB_ID"
+          echo "Azure subscription access verified for subscription id: $SUB_ID"
 
       - name: Select target environment
         id: config
@@ -114,15 +122,23 @@ jobs:
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           allow-no-subscriptions: true
 
       - name: Validate Azure subscription access
         run: |
           echo "Checking Azure subscriptions visible to this service principal..."
           az account list --all --output table
-          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          echo "Azure subscription access verified."
+
+          SUB_INPUT="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          SUB_ID=$(az account list --all --query "[?id=='${SUB_INPUT}' || name=='${SUB_INPUT}'] | [0].id" -o tsv)
+
+          if [ -z "$SUB_ID" ]; then
+            echo "Unable to find a visible subscription matching AZURE_SUBSCRIPTION_ID value: ${SUB_INPUT}"
+            exit 1
+          fi
+
+          az account set --subscription "$SUB_ID"
+          echo "Azure subscription access verified for subscription id: $SUB_ID"
 
       - name: Download tfplan artifact
         uses: actions/download-artifact@v4
@@ -178,15 +194,23 @@ jobs:
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           allow-no-subscriptions: true
 
       - name: Validate Azure subscription access
         run: |
           echo "Checking Azure subscriptions visible to this service principal..."
           az account list --all --output table
-          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          echo "Azure subscription access verified."
+
+          SUB_INPUT="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          SUB_ID=$(az account list --all --query "[?id=='${SUB_INPUT}' || name=='${SUB_INPUT}'] | [0].id" -o tsv)
+
+          if [ -z "$SUB_ID" ]; then
+            echo "Unable to find a visible subscription matching AZURE_SUBSCRIPTION_ID value: ${SUB_INPUT}"
+            exit 1
+          fi
+
+          az account set --subscription "$SUB_ID"
+          echo "Azure subscription access verified for subscription id: $SUB_ID"
 
       - name: Download Function App Name artifact
         uses: actions/download-artifact@v4

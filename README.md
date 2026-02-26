@@ -48,9 +48,9 @@ Configure these repository (or environment) secrets:
 
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
+- `AZURE_SUBSCRIPTION_ID` (subscription GUID **or** subscription name visible to the OIDC principal)
 
-These are used by `azure/login@v2` with federated identity (OIDC).
+The workflow performs OIDC login first, then resolves and selects the subscription with `az account set`. This avoids login failures when the subscription input is valid but not directly selectable during `azure/login@v2`.
 
 ## Notes
 
